@@ -1,0 +1,694 @@
+package com.transitfe;
+
+import com.facebook.react.ReactActivity;
+
+import android.app.ActivityManager;
+import android.content.pm.ApplicationInfo;
+import android.os.Build;
+import android.provider.Settings;
+import android.telephony.TelephonyManager;
+import android.view.WindowManager;
+import android.os.Bundle;
+import android.content.Context;
+import android.content.pm.PackageManager;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.net.InetAddress;
+import java.net.Socket;
+import java.util.HashMap;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Scanner;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import org.devio.rn.splashscreen.SplashScreen;
+import android.provider.Settings.Secure;
+import android.view.inputmethod.InputMethodInfo;
+import android.view.inputmethod.InputMethodManager;
+import kotlin.Metadata;
+import kotlin.jvm.internal.Intrinsics;
+import org.jetbrains.annotations.NotNull;
+import android.app.AlertDialog;
+import android.content.DialogInterface;
+import android.content.pm.PackageManager;
+import android.content.pm.Signature;
+import android.util.Log;
+
+
+public class MainActivity extends ReactActivity {
+
+  /**
+   * Returns the name of the main component registered from JavaScript. This is used to schedule
+   * rendering of the component.
+   */
+  @Override
+  protected String getMainComponentName() {
+    return "TransitFE";
+  }
+  @Override
+  protected void onCreate(Bundle savedInstanceState) {
+
+
+
+    // SplashScreen.show(this);  // here
+    super.onCreate(savedInstanceState);
+
+    getWindow().setFlags(
+      WindowManager.LayoutParams.FLAG_SECURE, 
+      WindowManager.LayoutParams.FLAG_SECURE
+    );
+
+    //****ROOT DETECTION CHECKS**** */
+    if(checkRootFilesAndPackages(getApplicationContext()) || checkSUPaths() || checkCustomOS() || checkForDangerousProps() 
+    || checkForRWPaths()){
+System.exit(1);
+    }
+    if(detectPotentiallyDangerousApps(knownDangerousAppsPackages) || detectRootCloakingApps(knownRootCloakingPackages)){
+System.exit(1);         
+    }
+  }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        //***** KEYLOGGER *****/
+        // notifyForUsingCustomInputMethod(this);
+        //*****USB DEBIGGING CHECK***** */
+          usbDebuggingCheck(this);
+        //*****EMULATOR CHECK***** */
+        // getApplications(this);
+    }
+
+
+    public static List<ApplicationInfo> getApplications(Context context) {
+        List<String> targetPackages = Arrays.asList(
+                "com.microvirt.launcher2",
+                "com.microvirt.memuime",
+                "com.microvirt.download",
+                "com.microvirt.guide",
+                "com.microvirt.tools",
+                "com.microvirt.installer"
+        );
+        java.util.List<android.content.pm.ApplicationInfo> list = context.getPackageManager().getInstalledApplications(PackageManager.GET_META_DATA);
+        for(android.content.pm.ApplicationInfo info : list){
+            Log.i("APPs", "APPInfonew "+ info + ">>> " +info.packageName );
+            if(targetPackages.contains(info.packageName)){
+                Log.i("APPs", "AppINFOBREAK "+ info.packageName);
+
+                        AlertDialog.Builder builder = new AlertDialog.Builder(context);
+        builder.setMessage("Applications not allowed on Emulator");
+        builder.setTitle("Security Alert!");
+        builder.setCancelable(false);
+        builder.setPositiveButton("OK", (DialogInterface.OnClickListener) (dialog, which) -> {
+            System.exit(1);
+        });
+        AlertDialog alertDialog = builder.create();
+        alertDialog.show();
+            }
+        }
+        Log.i("APPs", "ALL INSTALL APP "+ context.getPackageManager().getInstalledApplications(PackageManager.GET_META_DATA));
+        return context.getPackageManager().getInstalledApplications(PackageManager.GET_META_DATA);
+    }
+
+
+//EMULATOR CHECK
+    private boolean checkBuildConfig() {
+        Log.i("EmulatorCheck", "checkBuildConfig");
+        boolean isEmulator = (
+                (Build.MANUFACTURER == "Google" && Build.BRAND == "google" &&
+                        ((Build.FINGERPRINT.startsWith("google/sdk_gphone_")
+                                && Build.FINGERPRINT.endsWith(":user/release-keys")
+                                && Build.PRODUCT.startsWith("sdk_gphone_")
+                                && Build.MODEL.startsWith("sdk_gphone_"))
+                                //alternative
+                                || (Build.FINGERPRINT.startsWith("google/sdk_gphone64_")
+                                && (Build.FINGERPRINT.endsWith(":userdebug/dev-keys") || Build.FINGERPRINT.endsWith(":user/release-keys"))
+                                && Build.PRODUCT.startsWith("sdk_gphone64_")
+                                && Build.MODEL.startsWith("sdk_gphone64_"))))
+                || Build.FINGERPRINT.startsWith("unknown")
+                        || Build.HOST.startsWith("Build")
+                        || Build.PRODUCT == "google_sdk"
+                || Build.MANUFACTURER.contains("Genymotion")
+                || Build.MODEL.contains("google_sdk")
+                || Build.MODEL.toLowerCase().contains("droid4x")
+                || Build.MODEL.contains("Emulator")
+                || Build.MODEL.contains("Android SDK built for x86")
+                || Build.HARDWARE.equals("goldfish")
+                        ||Build.HARDWARE.contains("ranchu")
+                || Build.HARDWARE.equals("vbox86")
+                || Build.HARDWARE.toLowerCase().contains("nox")
+                || Build.FINGERPRINT.startsWith("generic")
+                || Build.PRODUCT.equals("sdk")
+                || Build.PRODUCT.equals("google_sdk")
+                || Build.PRODUCT.equals("sdk_x86")
+                || Build.PRODUCT.equals("vbox86p")
+                || Build.PRODUCT.toLowerCase().contains("nox")
+                || Build.BOARD.toLowerCase().contains("nox")
+                || (Build.BRAND.startsWith("generic") && Build.DEVICE.startsWith("generic")));
+        return isEmulator;
+    }
+
+
+    private static final String[] GENY_FILES = {
+            "/dev/socket/genyd",
+            "/dev/socket/baseband_genyd"
+    };
+    private static final String[] PIPES = {
+            "/dev/socket/qemud",
+            "/dev/qemu_pipe"
+    };
+    private static final String[] X86_FILES = {
+            "ueventd.android_x86.rc",
+            "x86.prop",
+            "ueventd.ttVM_x86.rc",
+            "init.ttVM_x86.rc",
+            "fstab.ttVM_x86",
+            "fstab.vbox86",
+            "init.vbox86.rc",
+            "ueventd.vbox86.rc"
+    };
+    private static final String[] ANDY_FILES = {
+            "fstab.andy",
+            "ueventd.andy.rc"
+    };
+    private static final String[] NOX_FILES = {
+            "fstab.nox",
+            "init.nox.rc",
+            "ueventd.nox.rc",
+            "init.goldfish.rc"
+    };
+
+    public static boolean checkFiles(String[] targets) {
+        for (String pipe : targets) {
+            File file = new File(pipe);
+            if (file.exists()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+//EMULATOR CHECK
+    public static boolean checkEmulatorFiles() {
+        Log.i("EmulatorCheck", "checkEmulatorFiles");
+        return (checkFiles(GENY_FILES)
+                || checkFiles(ANDY_FILES)
+                || checkFiles(NOX_FILES)
+                || checkFiles(X86_FILES)
+                || checkFiles(PIPES));
+    }
+
+//EMULATOR CHECK
+    public static boolean otherCheckEmu() {
+        File qemuTraceFile = new File("/sys/qemu_trace");
+        String qemu = System.getProperty("ro.kernel.qemu");
+        Log.i("EmulatorCheck", "otherCheckEmu "+ qemu);
+        if ((qemu != null && qemu.equals("1")) || qemuTraceFile.exists()) {
+            // Running on an emulator
+            return true;
+        } else {
+            // Running on a physical device
+            return false;
+        }
+    }
+
+//EMULATOR CHECK
+    public static boolean emulibrary(){
+        Log.i("EmulatorCheck", "emulibrary");
+        boolean emuFlag=false;
+        try {
+            Log.i("EmulatorCheck", "emulibrarytry");
+            System.loadLibrary("libemulatorcheck.so");
+            // It's likely an emulator
+            emuFlag=true;
+        } catch (UnsatisfiedLinkError e) {
+            Log.i("EmulatorCheck", "emulibrarycatch");
+            // Not an emulator
+            emuFlag=false;
+        }
+        return emuFlag;
+    }
+
+//EMULATOR CHECK
+    public static boolean checkCamGps(Context context ){
+        Log.i("EmulatorCheck", "checkCamGps");
+        PackageManager pm = context.getPackageManager();
+        boolean hasCamera = pm.hasSystemFeature(PackageManager.FEATURE_CAMERA);
+        boolean hasGps = pm.hasSystemFeature(PackageManager.FEATURE_LOCATION_GPS);
+        Log.i("EmulatorCheck", "checkCamGps" + hasCamera + " " +hasGps);
+        if (!hasCamera || !hasGps) {
+            // Likely running on an emulator
+            return true;
+        } else {
+            // Likely running on a physical device
+            return false;
+        }
+    }
+
+//EMULATOR CHECK
+    public boolean checkTele(){
+        TelephonyManager tm = (TelephonyManager)getSystemService(Context.TELEPHONY_SERVICE);
+        String networkOperator = tm.getNetworkOperatorName();
+        if("Android".equals(networkOperator)) {
+            Log.i("EmulatorCheck", "checkTele");
+            return true;
+        }
+        else {
+            Log.i("EmulatorCheck", "checkTele");
+            return false;
+        }
+    }
+
+
+
+//APK TAMPARED CHECK
+    public final void getPackageNameAndSignature(Context context) {
+      try{
+          String packageName="";
+          Integer packageSignature=0;
+          ActivityManager am = (ActivityManager) context
+                  .getSystemService(Context.ACTIVITY_SERVICE);
+          List<ActivityManager.RunningAppProcessInfo> processes = am.getRunningAppProcesses();
+          for (ActivityManager.RunningAppProcessInfo info : processes) {
+              String[] packages = info.pkgList;
+              packageName=packages[0].toString();
+              Log.i("App", "packagesNewMethod-- : " + packages[0].toString());
+          }
+          Signature[] sigs = MainActivity.this.getPackageManager().getPackageInfo(MainActivity.this.getPackageName(), PackageManager.GET_SIGNATURES).signatures;
+          for (Signature sig : sigs)
+          {
+              packageSignature=sig.hashCode();
+              Log.i("App", "Signature-- : " + sig.hashCode());
+          }
+
+          if(BuildConfig.DEBUG){
+              Log.i("DEBUG","true");
+              if(packageSignature != null && packageSignature != 1374502752 ){
+                  finish();
+              }
+          }else{
+              Log.i("DEBUG","false");
+              if(packageSignature != null && packageSignature != -70641117 ){
+                  finish();
+              }
+          }
+
+
+
+          if(
+                  checkBuildConfig() || checkEmulatorFiles()
+                 || checkCamGps(this)
+                 || otherCheckEmu()
+                  || emulibrary()
+                  || checkTele()
+          ){
+              Log.i("EmulatorCheck", "emulator detected");
+              //Alert code
+              AlertDialog.Builder builder = new AlertDialog.Builder(this);
+              builder.setMessage("This application not allowed in Emulator");
+              builder.setTitle("Security Alert!");
+              builder.setCancelable(false);
+              builder.setPositiveButton("OK", (DialogInterface.OnClickListener) (dialog, which) -> {
+                  finish();
+              });
+              AlertDialog alertDialog = builder.create();
+              alertDialog.show();
+          }
+
+        //   if ((packageName!=null && !packageName.equalsIgnoreCase("com.transitfe"))|| hookDetection() ){
+        //       Log.i("App", "Finish-- : " + packageName + packageSignature );
+        //      finish();
+        //   }
+                    if ((packageName!=null && !packageName.equalsIgnoreCase("com.transitfe") ){
+              Log.i("App", "Finish-- : " + packageName + packageSignature );
+             finish();
+          }
+
+      }
+      catch (Exception e){
+
+      }
+
+  }
+
+
+//USB DEBUGGING CHECK
+    public void usbDebuggingCheck (Context context) {
+        int adbEnabled = Settings.Global.getInt(
+                context.getContentResolver(),
+                Settings.Global.ADB_ENABLED,
+                0
+        );
+
+        if (adbEnabled == 1) {
+
+            if(BuildConfig.DEBUG){
+                Log.i("App", "usbDebuggingCheckInDebug");
+            }else{
+                // USB debugging is enabled
+//            showToast("Please disable USB debugging and restart the app.");
+                AlertDialog.Builder builder = new AlertDialog.Builder(this);
+                // Set the message show for the Alert time
+                builder.setMessage("Please disable USB debugging in the device to proceed the application");
+                // Set Alert Title
+                builder.setTitle("Security Alert!");
+                // Set Cancelable false for when the user clicks on the outside the Dialog Box then it will remain show
+                builder.setCancelable(false);
+                // Set the positive button with yes name Lambda OnClickListener method is use of DialogInterface interface.
+                builder.setPositiveButton("OK", (DialogInterface.OnClickListener) (dialog, which) -> {
+                    // When the user click yes button then app will close
+                    finish();
+                });
+                // Create the Alert dialog
+                AlertDialog alertDialog = builder.create();
+                // Show the Alert Dialog box
+                alertDialog.show();
+            }
+        } else {
+            // USB debugging is disabled
+            // You can proceed with your app logic here
+        }
+    }
+
+
+
+//HOOK DETECTION --APK TAMAPRED
+    public final boolean hookDetection() {
+        boolean flag=false;
+        try {
+            Log.i("App", "hookDetectionTry");
+            throw new Exception();
+        }
+        catch(Exception e) {
+            Log.i("App", "hookDetectionCatch");
+            int zygoteInitCallCount = 0;
+            for(StackTraceElement stackTraceElement : e.getStackTrace()) {
+                if(stackTraceElement.getClassName().equals("com.android.internal.os.ZygoteInit")) {
+                    zygoteInitCallCount++;
+                    if(zygoteInitCallCount == 2) {
+                        Log.i("HookDetection", "Substrate is active on the device.");
+                        flag =true;
+                    }
+                }
+                if(stackTraceElement.getClassName().equals("com.saurik.substrate.MS$2") &&
+                        stackTraceElement.getMethodName().equals("invoked")) {
+                    Log.i("HookDetection", "A method on the stack trace has been hooked using Substrate.");
+                    flag= true;
+                }
+                if(stackTraceElement.getClassName().equals("de.robv.android.xposed.XposedBridge") &&
+                        stackTraceElement.getMethodName().equals("main")) {
+                    Log.i("HookDetection", "Xposed is active on the device.");
+                    flag= true;
+                }
+                if(stackTraceElement.getClassName().equals("de.robv.android.xposed.XposedBridge") &&
+                        stackTraceElement.getMethodName().equals("handleHookedMethod")) {
+                    Log.i("HookDetection", "A method on the stack trace has been hooked using Xposed.");
+                    flag= true;
+                }
+
+            }
+        }
+ return flag;
+    }
+
+
+
+//ROOT DETECTION
+  static final String[] knownRootAppsPackages = {
+    "com.noshufou.android.su",
+    "com.noshufou.android.su.elite",
+    "eu.chainfire.supersu",
+    "com.koushikdutta.superuser",
+    "com.thirdparty.superuser",
+    "com.yellowes.su",
+    "com.topjohnwu.magisk",
+    "com.kingroot.kinguser",
+    "com.kingo.root",
+    "com.smedialink.oneclickroot",
+    "com.zhiqupk.root.global",
+    "com.alephzain.framaroot"
+};
+
+
+//ROOT DETECTION
+public static final String[] knownDangerousAppsPackages = { "com.koushikdutta.rommanager",
+    "com.koushikdutta.rommanager.license", "com.dimonvideo.luckypatcher", "com.chelpus.lackypatch",
+    "com.ramdroid.appquarantine", "com.ramdroid.appquarantinepro",
+    "com.android.vending.billing.InAppBillingService.COIN",
+    "com.android.vending.billing.InAppBillingService.LUCK", "com.chelpus.luckypatcher", "com.blackmartalpha",
+    "org.blackmart.market", "com.allinone.free", "com.repodroid.app", "org.creeplays.hack",
+    "com.baseappfull.fwd", "com.zmapp", "com.dv.marketmod.installer", "org.mobilism.android",
+    "com.android.wp.net.log", "com.android.camera.update", "cc.madkite.freedom",
+    "com.solohsu.android.edxp.manager", "org.meowcat.edxposed.manager", "com.xmodgame", "com.cih.game_cih",
+    "com.charles.lpoqasert", "catch_.me_.if_.you_.can_" };
+
+//ROOT DETECTION
+public static boolean checkRootFilesAndPackages(Context context)
+{
+boolean result = false;
+for(String string1: knownRootAppsPackages) {
+    if(isPackageInstalled(string1, context)) {
+        result = true;
+        break;
+    }   }
+return result;
+}
+
+//ROOT DETECTION
+private static boolean isPackageInstalled(String packagename, Context context){
+PackageManager pm = context.getPackageManager();
+try {
+    pm.getPackageInfo(packagename, PackageManager.GET_ACTIVITIES);
+    return true;
+}
+catch ( Exception e) {
+    return false;
+}  }
+
+//ROOT DETECTION
+static final String[] knownSUPaths = {
+    "/system/bin/su",
+    "/system/xbin/su",
+    "/sbin/su",
+    "/system/su",
+    "/system/bin/.ext/.su",
+    "/system/usr/we-need-root/su-backup",
+    "/system/xbin/mu",
+    "/data/local/tmp/frida-server"
+};
+
+//ROOT DETECTION
+public static boolean checkSUPaths() {
+boolean result = false;
+for (String string1: knownSUPaths) {
+    File f = new File(string1);
+    boolean fileExists = f.exists();
+    if (fileExists) {
+        result = true;
+    }
+}
+return result;
+}
+
+//ROOT DETECTION
+public boolean checkCustomOS() {
+String buildTags = android.os.Build.TAGS;
+if (buildTags != null && buildTags.contains("test-keys")) {
+    return true;
+}
+return false;
+}
+
+
+//ROOT DETECTION
+public static boolean checkOTACerts() {
+String OTAPath = "/etc/security/otacerts.zip";
+File f = new File(OTAPath);
+boolean fileExists = f.exists();
+if (fileExists) {
+    return true;
+} else {
+    return false;
+}
+}
+
+
+//ROOT DETECTION
+private String[] propsReader() {
+try {
+    InputStream inputstream = Runtime.getRuntime().exec("getprop").getInputStream();
+    if (inputstream == null)
+        return null;
+    String propVal = new Scanner(inputstream).useDelimiter("\\A").next();
+    return propVal.split("\n");
+} catch (Exception e) {
+    return null;
+}
+}
+
+
+//ROOT DETECTION
+public boolean checkForDangerousProps() {
+final Map<String,String> dangerousProps = new HashMap<>();
+dangerousProps.put("ro.debuggable", "1");
+dangerousProps.put("ro.secure", "0");
+boolean result = false;
+String[] lines = propsReader();
+if (lines == null) {
+    return false;
+}
+for (String line : lines) {
+    for (String key : dangerousProps.keySet()) {
+        if (line.contains(key)) {
+            String badValue = dangerousProps.get(key);
+            badValue = "[" + badValue + "]";
+            if (line.contains(badValue)) {
+                //QLog.v(key + " = " + badValue + " detected!");
+                result = true;
+            }
+        }
+    }
+}
+return result;
+}
+
+//ROOT DETECTION
+public boolean detectPotentiallyDangerousApps(String[] additionalDangerousApps) {
+ArrayList packages = new ArrayList<>();
+packages.addAll(Arrays.asList(knownDangerousAppsPackages));
+if (additionalDangerousApps != null && additionalDangerousApps.length > 0) {
+    packages.addAll(Arrays.asList(additionalDangerousApps));
+}
+return isAnyPackageFromListInstalled(packages);
+}
+
+//ROOT DETECTION
+static final String[]  pathsThatShouldNotBeWritable = {"/data",  "/", "/system","/system/bin","/system/sbin","/system/xbin","/vendor/bin","/sys","/sbin","/etc","/proc","/dev"};
+
+
+//ROOT DETECTION
+public boolean checkForRWPaths() {
+boolean result = false;
+String[] lines = pathsThatShouldNotBeWritable;
+if (lines == null) {
+    return false;
+}
+int sdkVersion = android.os.Build.VERSION.SDK_INT;
+for (String line : lines) {
+    String[] args = line.split(" ");
+    if ((sdkVersion <= android.os.Build.VERSION_CODES.M && args.length < 4)
+            || (sdkVersion > android.os.Build.VERSION_CODES.M && args.length < 6)) {
+        continue;
+    }
+    String mountPoint;
+    String mountOptions;
+    if (sdkVersion > android.os.Build.VERSION_CODES.M) {
+        mountPoint = args[2];
+        mountOptions = args[5];
+    } else {
+        mountPoint = args[1];
+        mountOptions = args[3];
+    }
+    for (String pathToCheck : pathsThatShouldNotBeWritable) {
+        if (mountPoint.equalsIgnoreCase(pathToCheck)) {
+            if (android.os.Build.VERSION.SDK_INT > android.os.Build.VERSION_CODES.M) {
+                mountOptions = mountOptions.replace("(", "");
+                mountOptions = mountOptions.replace(")", "");
+            }
+            for (String option : mountOptions.split(",")) {
+                if (option.equalsIgnoreCase("rw")) {
+                    result = true;
+                    break;
+                }
+            }
+        }
+    }
+}
+return result;
+}
+
+//ROOT DETECTION
+public static final String[] knownRootCloakingPackages = { "com.devadvance.rootcloak",
+    "com.devadvance.rootcloakplus", "de.robv.android.xposed.installer", "com.saurik.substrate",
+    "com.zachspong.temprootremovejb", "com.amphoras.hidemyroot", "com.amphoras.hidemyrootadfree",
+    "com.formyhm.hiderootPremium", "com.formyhm.hideroot" };
+
+//ROOT DETECTION
+public boolean detectRootCloakingApps(String[] additionalRootCloakingApps) {
+ArrayList packages = new ArrayList<>(Arrays.asList(knownRootCloakingPackages));
+if (additionalRootCloakingApps != null && additionalRootCloakingApps.length > 0) {
+    packages.addAll(Arrays.asList(additionalRootCloakingApps));
+}
+return isAnyPackageFromListInstalled(packages);
+}
+
+//ROOT DETECTION
+private boolean isAnyPackageFromListInstalled(List<String> packages) {
+boolean result = false;
+PackageManager pm = getApplicationContext().getPackageManager();
+for (String packageName : packages) {
+    try {
+        pm.getPackageInfo(packageName, 0);
+        result = true;
+    } catch (Exception e) {
+    }
+}
+return result;
+}
+
+//*******KELOGGER VAPT****** */
+
+public final boolean notifyForUsingCustomInputMethod(@NotNull Context context) {
+      Intrinsics.checkNotNullParameter(context, "context");
+      Object var10000 = context.getSystemService("input_method");
+      if (var10000 == null) {
+         throw new NullPointerException("null cannot be cast to non-null type android.view.inputmethod.InputMethodManager");
+      } else {
+         InputMethodManager inputMethodMngr = (InputMethodManager)var10000;
+         List inputMethodList = inputMethodMngr.getEnabledInputMethodList();
+         int i = 0;
+
+         for(int var4 = inputMethodList.size(); i < var4; ++i) {
+            InputMethodInfo imi = (InputMethodInfo)inputMethodList.get(i);
+            Intrinsics.checkNotNullExpressionValue(imi, "imi");
+            if (Intrinsics.areEqual(imi.getId(), Secure.getString(context.getContentResolver(), "default_input_method")) && (imi.getServiceInfo().applicationInfo.flags & 1) != 1) {
+               
+
+AlertDialog.Builder builder = new AlertDialog.Builder(this);
+  
+        // Set the message show for the Alert time
+        builder.setMessage("Please don't use third party keyboard");
+  
+        // Set Alert Title
+        builder.setTitle("Security Alert!");
+  
+        // Set Cancelable false for when the user clicks on the outside the Dialog Box then it will remain show
+        builder.setCancelable(false);
+
+
+    // Set the positive button with yes name Lambda OnClickListener method is use of DialogInterface interface.
+        builder.setPositiveButton("OK", (DialogInterface.OnClickListener) (dialog, which) -> {
+            // When the user click yes button then app will close
+            finish();
+        });
+
+        // Create the Alert dialog
+        AlertDialog alertDialog = builder.create();
+        // Show the Alert Dialog box
+        alertDialog.show();
+
+               return true;
+
+            }
+         }
+
+         return false;
+      }
+   }
+
+}
